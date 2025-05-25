@@ -3,6 +3,8 @@ const { Buffer } = require('node:buffer');
 const EventEmitter = require('events');
 const fetch = require('node-fetch');
 
+const VOICE_MODEL = 'model=aura-2-odysseus-en'
+
 class TextToSpeechService extends EventEmitter {
   constructor() {
     super();
@@ -17,7 +19,7 @@ class TextToSpeechService extends EventEmitter {
 
     try {
       const response = await fetch(
-        `https://api.deepgram.com/v1/speak?model=${process.env.VOICE_MODEL}&encoding=mulaw&sample_rate=8000&container=none`,
+        `https://api.deepgram.com/v1/speak?model=${VOICE_MODEL}&encoding=mulaw&sample_rate=8000&container=none`,
         {
           method: 'POST',
           headers: {
