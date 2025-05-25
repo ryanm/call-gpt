@@ -3,6 +3,7 @@ const { createClient, LiveTranscriptionEvents } = require('@deepgram/sdk');
 const { Buffer } = require('node:buffer');
 const EventEmitter = require('events');
 
+const MIN_TRANSCRIPTION_LENGTH = 5;
 
 class TranscriptionService extends EventEmitter {
   constructor() {
@@ -32,11 +33,20 @@ class TranscriptionService extends EventEmitter {
         // if we receive an UtteranceEnd and speech_final has not already happened then we should consider this the end of of the human speech and emit the transcription
         if (transcriptionEvent.type === 'UtteranceEnd') {
           if (!this.speechFinal) {
-            console.log(`UtteranceEnd received before speechFinal, emit the text collected so far: ${this.finalResult}`.yellow);
-            this.emit('transcription', this.finalResult);
+            console.log(`UtteranceEnd received before speechFinal, considering to emit: '${this.finalResult}'`.yellow);
+            if (this.finalResult && this.finalResult.trim().length > MIN_TRANSCRIPTION_LENGTH) {
+              this.emit('transcription', this.finalResult);
+            } else {
+              console.log(`Skipping emission for short/empty finalResult on UtteranceEnd: '${this.finalResult}'`.yellow);
+            }
+            this.finalResult = ''; // Reset finalResult after UtteranceEnd processing
+            // No need to set this.speechFinal = false here, as speech_final event itself will dictate it.
             return;
           } else {
-            console.log('STT -> Speech was already final when UtteranceEnd recevied'.yellow);
+            console.log('STT -> Speech was already final when UtteranceEnd recevied, no action needed.'.yellow);
+            // If speechFinal is true, it means a speech_final event already processed this utterance.
+            // We should ensure finalResult is cleared if not already, though speech_final should have done it.
+            this.finalResult = ''; 
             return;
           }
         }
@@ -44,14 +54,20 @@ class TranscriptionService extends EventEmitter {
         // console.log(text, "is_final: ", transcription?.is_final, "speech_final: ", transcription.speech_final);
         // if is_final that means that this chunk of the transcription is accurate and we need to add it to the finalResult 
         if (transcriptionEvent.is_final === true && text.trim().length > 0) {
-          this.finalResult += ` ${text}`;
+          this.finalResult += ` ${text}`; // Accumulate final text
           // if speech_final and is_final that means this text is accurate and it's a natural pause in the speakers speech. We need to send this to the assistant for processing
           if (transcriptionEvent.speech_final === true) {
-            this.speechFinal = true; // this will prevent a utterance end which shows up after speechFinal from sending another response
-            this.emit('transcription', this.finalResult);
-            this.finalResult = '';
+            this.speechFinal = true; // Mark that speech_final has occurred
+            console.log(`SpeechFinal received, considering to emit: '${this.finalResult}'`.yellow);
+            if (this.finalResult && this.finalResult.trim().length > MIN_TRANSCRIPTION_LENGTH) {
+              this.emit('transcription', this.finalResult);
+            } else {
+              console.log(`Skipping emission for short/empty finalResult on speech_final: '${this.finalResult}'`.yellow);
+            }
+            this.finalResult = ''; // Reset finalResult after processing speech_final
           } else {
-            // if we receive a message without speechFinal reset speechFinal to false, this will allow any subsequent utteranceEnd messages to properly indicate the end of a message
+            // if we receive an is_final but not speech_final, it means more speech is expected.
+            // Reset speechFinal to false so that a subsequent UtteranceEnd can be authoritative.
             this.speechFinal = false;
           }
         } else {
