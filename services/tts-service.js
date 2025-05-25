@@ -3,7 +3,7 @@ const { Buffer } = require('node:buffer');
 const EventEmitter = require('events');
 const fetch = require('node-fetch');
 
-const VOICE_MODEL = 'aura-2-arcas-en' // 'aura-2-odysseus-en'
+const VOICE_MODEL =  'aura-2-odysseus-en' // 'aura-2-arcas-en'
 const SAMPLE_RATE = '8000'
 
 class TextToSpeechService extends EventEmitter {
