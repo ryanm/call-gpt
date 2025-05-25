@@ -16,7 +16,7 @@ class GptService extends EventEmitter {
     super();
     this.openai = new OpenAI();
     this.userContext = [
-      { 'role': 'system', 'content': 'You are a helpful assistant. Speak naturally, using short, clear sentences that sound good when spoken aloud.' },
+      { 'role': 'system', 'content': 'You are a helpful assistant. Use short, clear sentences that sound good when spoken aloud. Always respond in prose. Never use these: bullets, asterisks, boldface, italics, sections, headings, or similar.' },
       { 'role': 'assistant', 'content': "Hey what's up?" },
     ],
     this.partialResponseIndex = 0;
