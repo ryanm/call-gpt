@@ -55,6 +55,17 @@ class StreamService extends EventEmitter {
     );
     this.emit('audiosent', markLabel);
   }
+
+  sendAudioChunk (audioChunk) {
+    // audioChunk is expected to be a raw Buffer
+    if (audioChunk instanceof Buffer) {
+      const base64Audio = audioChunk.toString('base64');
+      this.sendAudio(base64Audio);
+    } else {
+      console.error('StreamService.sendAudioChunk: audioChunk is not a Buffer. Type:', typeof audioChunk);
+      // Potentially handle error or log more details
+    }
+  }
 }
 
 module.exports = {StreamService};

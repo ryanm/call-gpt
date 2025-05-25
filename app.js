@@ -95,12 +95,24 @@ app.ws('/connection', (ws) => {
       console.log(`Interaction ${icount}: GPT -> TTS: ${gptReply.partialResponse}`.green );
       ttsService.generate(gptReply, icount);
     });
+
+    // New listener for raw audio chunks from streaming TTS
+    ttsService.on('speechChunk', (audioChunk, partialResponseIndex, icount) => {
+      console.log(`Interaction ${icount}: TTS Chunk (index ${partialResponseIndex}, bytes: ${audioChunk.length}) -> TWILIO`.blue);
+      streamService.sendAudioChunk(audioChunk);
+    });
   
+    // Commenting out the old 'speech' listener as TextToSpeechService was refactored
+    // to primarily use 'speechChunk' for its streaming output.
+    // If there are parts of ttsService that still emit 'speech' for non-streamed audio,
+    // this might need to be re-evaluated.
+    /*
     ttsService.on('speech', (responseIndex, audio, label, icount) => {
       console.log(`Interaction ${icount}: TTS -> TWILIO: ${label}`.blue);
   
       streamService.buffer(responseIndex, audio);
     });
+    */
   
     streamService.on('audiosent', (markLabel) => {
       marks.push(markLabel);

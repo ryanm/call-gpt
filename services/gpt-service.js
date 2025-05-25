@@ -60,7 +60,7 @@ class GptService extends EventEmitter {
     });
 
     let completeResponse = '';
-    let partialResponse = '';
+    // partialResponse is no longer needed here as we emit chunks directly
     let functionName = '';
     let functionArgs = '';
     let finishReason = '';
@@ -88,6 +88,11 @@ class GptService extends EventEmitter {
         collectToolInformation(deltas);
       }
 
+      // Accumulate content for completeResponse for context
+      if (content) {
+        completeResponse += content;
+      }
+
       // need to call function on behalf of Chat GPT with the arguments it parsed from the conversation
       if (finishReason === 'tool_calls') {
         // parse JSON string of args into JSON object
@@ -101,36 +106,41 @@ class GptService extends EventEmitter {
         const say = toolData.function.say;
 
         this.emit('gptreply', {
-          partialResponseIndex: null,
+          partialResponseIndex: null, // This is a canned response, no specific index from stream
           partialResponse: say
         }, interactionCount);
+
+        // Reset function name and args for next potential call
+        functionName = '';
+        functionArgs = '';
 
         let functionResponse = await functionToCall(validatedArgs);
 
         // Step 4: send the info on the function call and function response to GPT
-        this.updateUserContext(functionName, 'function', functionResponse);
+        // Note: text passed here is the functionResponse, not the user's original text
+        this.updateUserContext(toolData.function.name, 'function', functionResponse);
         
         // call the completion function again but pass in the function response to have OpenAI generate a new assistant response
-        await this.completion(functionResponse, interactionCount, 'function', functionName);
+        await this.completion(functionResponse, interactionCount, 'function', toolData.function.name);
+        // Once the recursive call for function processing is done, we should not process this chunk further as assistant response.
+        return; 
       } else {
-        // We use completeResponse for userContext
-        completeResponse += content;
-        // We use partialResponse to provide a chunk for TTS
-        partialResponse += content;
-        // Emit last partial response and add complete response to userContext
-        if (content.trim().slice(-1) === '•' || finishReason === 'stop') {
-          const gptReply = { 
+        // Emit content chunks immediately for TTS
+        if (content) {
+          this.emit('gptreply', {
             partialResponseIndex: this.partialResponseIndex,
-            partialResponse
-          };
-
-          this.emit('gptreply', gptReply, interactionCount);
+            partialResponse: content
+          }, interactionCount);
           this.partialResponseIndex++;
-          partialResponse = '';
         }
       }
     }
-    this.userContext.push({'role': 'assistant', 'content': completeResponse});
+
+    // After the loop, if there was a complete response, add it to context.
+    // This handles cases where the stream ends without a tool_call.
+    if (completeResponse) {
+      this.userContext.push({'role': 'assistant', 'content': completeResponse});
+    }
     console.log(`GPT -> user context length: ${this.userContext.length}`.green);
   }
 }
