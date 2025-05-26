@@ -35,15 +35,15 @@ class TextToSpeechService extends EventEmitter {
 
 this.dgConnection.on(LiveTTSEvents.Audio, (originalAudioChunk) => {
   if (!originalAudioChunk || originalAudioChunk.length === 0) {
-    console.log(`TTS Service: Received empty/null chunk. Skipping.`);
+    console.log(`[TTS_FILTER] Received empty/null chunk. Skipping.`);
     return; 
   }
 
-  // Check if the first byte is 0xFF
+  // Check the very first byte
   if (originalAudioChunk[0] === 0xFF) {
+    // First byte is 0xFF. Now, check if ALL bytes are 0xFF.
     let firstNonFF = -1;
-    // Find the first byte that is NOT 0xFF
-    for (let i = 0; i < originalAudioChunk.length; i++) {
+    for (let i = 1; i < originalAudioChunk.length; i++) { // Start from 1, we know byte 0 is 0xFF
       if (originalAudioChunk[i] !== 0xFF) {
         firstNonFF = i;
         break;
@@ -52,23 +52,23 @@ this.dgConnection.on(LiveTTSEvents.Audio, (originalAudioChunk) => {
 
     if (firstNonFF === -1) { 
       // All bytes were 0xFF
-      console.log(`TTS Service: Chunk (Length: ${originalAudioChunk.length}) is ALL 0xFF. Discarding.`);
+      console.log(`[TTS_FILTER] Chunk (Length: ${originalAudioChunk.length}) is ALL 0xFF. Discarding.`);
       return; // Do not emit this chunk
     } else { 
       // Starts with 0xFF, but has other data later. Slice off all leading 0xFFs.
       const newChunk = originalAudioChunk.slice(firstNonFF);
-      console.log(`TTS Service: Trimmed ${firstNonFF} leading 0xFFs. Original Length: ${originalAudioChunk.length}, New Length: ${newChunk.length}.`);
+      console.log(`[TTS_FILTER] Trimmed ${firstNonFF} leading 0xFFs. Original Length: ${originalAudioChunk.length}, New Length: ${newChunk.length}.`);
       if (newChunk.length > 0) {
-        console.log(`TTS Service: Emitting (after trimming leading 0xFFs) Length=${newChunk.length}, First 10 hex='${newChunk.slice(0, 10).toString('hex')}'`);
+        console.log(`[TTS_FILTER] Emitting (after trimming): Length=${newChunk.length}, First 10 hex='${newChunk.slice(0, 10).toString('hex')}'`);
         this.emit('speechChunk', newChunk, this.currentPartialResponseIndex, this.currentInteractionCount);
       } else {
-        console.log(`TTS Service: Chunk became empty after trimming leading 0xFFs. Original Length: ${originalAudioChunk.length}. Skipping.`);
+        console.log(`[TTS_FILTER] Chunk became empty after trimming. Original Length: ${originalAudioChunk.length}. Skipping.`);
       }
       return; 
     }
   } else { 
-    // First byte is NOT 0xFF, emit as is.
-    console.log(`TTS Service: Emitting (no leading 0xFF) Length=${originalAudioChunk.length}, First 10 hex='${originalAudioChunk.slice(0, 10).toString('hex')}'`);
+    // First byte is NOT 0xFF. Emit as is.
+    console.log(`[TTS_FILTER] Emitting (no leading 0xFF): Length=${originalAudioChunk.length}, First 10 hex='${originalAudioChunk.slice(0, 10).toString('hex')}'`);
     this.emit('speechChunk', originalAudioChunk, this.currentPartialResponseIndex, this.currentInteractionCount);
   }
 });
