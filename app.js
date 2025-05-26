@@ -60,7 +60,7 @@ app.ws('/connection', (ws) => {
           console.log(`Twilio -> Starting Media Stream for ${streamSid}`.underline.red); // Kept for original meaning
           
           const sendInitialGreeting = () => {
-            console.log('Deepgram TTS is ready. Sending initial greeting "Hey, what's up?".');
+            console.log("Deepgram TTS is ready. Sending initial greeting: \"Hey, what's up?\"");
             ttsService.generate({partialResponseIndex: null, partialResponse: "Hey, what's up?"}, 0);
           };
 
