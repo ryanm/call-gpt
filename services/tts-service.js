@@ -32,14 +32,14 @@ class TextToSpeechService extends EventEmitter {
       console.log('Deepgram TTS WebSocket connection opened.');
     });
 
-    this.dgConnection.on(LiveTTSEvents.Audio, (audioChunk) => {
-      // audioChunk is a Buffer
-      if (audioChunk.length > 0) {
-        console.log(`Received audio chunk, length: ${audioChunk.length}`);
-        console.log(`Deepgram TTS Audio Chunk: Length=${audioChunk.length}, First 10 bytes (hex)='${audioChunk.slice(0, 10).toString('hex')}'`);
-        this.emit('speechChunk', audioChunk, this.currentPartialResponseIndex, this.currentInteractionCount);
-      }
-    });
+this.dgConnection.on(LiveTTSEvents.Audio, (originalAudioChunk) => {
+  if (originalAudioChunk && originalAudioChunk.length > 0) {
+    console.log(`RAW DG AUDIO CHUNK: Length=${originalAudioChunk.length}, First 10 hex='${originalAudioChunk.slice(0, 10).toString('hex')}'`);
+    this.emit('speechChunk', originalAudioChunk, this.currentPartialResponseIndex, this.currentInteractionCount);
+  } else {
+    console.log('RAW DG AUDIO CHUNK: Received empty or null chunk.');
+  }
+});
 
     this.dgConnection.on(LiveTTSEvents.Metadata, (metadata) => {
       console.log('Deepgram TTS WebSocket metadata:', metadata);
