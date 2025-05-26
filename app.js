@@ -57,25 +57,9 @@ app.ws('/connection', (ws) => {
 
         // Set RECORDING_ENABLED='true' in .env to record calls
         recordingService(ttsService, callSid).then(() => {
-          console.log(`Twilio -> Starting Media Stream for ${streamSid}`.underline.red); // Kept for original meaning
-          
-          const sendInitialGreeting = () => {
-            console.log("Deepgram TTS is ready. Sending initial greeting: \"Hey, what's up?\"");
-            ttsService.generate({partialResponseIndex: null, partialResponse: "Hey, what's up?"}, 0);
-          };
-
-          if (ttsService.isReady()) {
-            sendInitialGreeting();
-          } else {
-            console.log('Deepgram TTS not immediately ready for initial greeting, waiting for tts-ready event.');
-            ttsService.once('tts-ready', sendInitialGreeting);
-            // Optional: Add a timeout here in case 'tts-ready' never fires
-            setTimeout(() => {
-                if (!ttsService.isReady()) {
-                    console.error('Timeout waiting for tts-ready for initial greeting.');
-                }
-            }, 5000); // 5 second timeout
-          }
+          console.log(`Twilio -> Starting Media Stream for ${streamSid}`.underline.red);
+          // Directly generate the initial greeting
+          ttsService.generate({partialResponseIndex: null, partialResponse: "Hey, what's up?"}, 0);
         });
       } else if (msg.event === 'media') {
         transcriptionService.send(msg.media.payload);
@@ -112,24 +96,11 @@ app.ws('/connection', (ws) => {
       console.log(`Interaction ${icount}: GPT -> TTS: ${gptReply.partialResponse}`.green );
       ttsService.generate(gptReply, icount);
     });
-
-    // New listener for raw audio chunks from streaming TTS
-    ttsService.on('speechChunk', (audioChunk, partialResponseIndex, icount) => {
-      console.log(`Interaction ${icount}: TTS Chunk (index ${partialResponseIndex}, bytes: ${audioChunk.length}) -> TWILIO`.blue);
-      streamService.sendAudioChunk(audioChunk);
-    });
   
-    // Commenting out the old 'speech' listener as TextToSpeechService was refactored
-    // to primarily use 'speechChunk' for its streaming output.
-    // If there are parts of ttsService that still emit 'speech' for non-streamed audio,
-    // this might need to be re-evaluated.
-    /*
     ttsService.on('speech', (responseIndex, audio, label, icount) => {
-      console.log(`Interaction ${icount}: TTS -> TWILIO: ${label}`.blue);
-  
+      console.log(`Interaction ${icount}: TTS -> TWILIO: ${label}`.blue); // Or similar existing log
       streamService.buffer(responseIndex, audio);
     });
-    */
   
     streamService.on('audiosent', (markLabel) => {
       marks.push(markLabel);

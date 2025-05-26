@@ -60,8 +60,7 @@ class GptService extends EventEmitter {
     });
 
     let completeResponse = '';
-    let ttsBuffer = '';
-    let lastChunkTime = Date.now(); // Though not used in current emission logic, good for potential future timeouts
+    let partialResponse = ''; // For accumulating text for TTS
     let functionName = '';
     let functionArgs = '';
     let finishReason = '';
@@ -82,11 +81,10 @@ class GptService extends EventEmitter {
       let content = chunk.choices[0]?.delta?.content || '';
       let deltas = chunk.choices[0].delta;
       finishReason = chunk.choices[0].finish_reason;
-      lastChunkTime = Date.now();
 
       if (content) {
-        ttsBuffer += content;
-        completeResponse += content; // Accumulate for full context
+        partialResponse += content;
+        completeResponse += content; // Accumulate for full context as well
       }
 
       // Step 2: check if GPT wanted to call a function
@@ -97,14 +95,14 @@ class GptService extends EventEmitter {
       
       // need to call function on behalf of Chat GPT with the arguments it parsed from the conversation
       if (finishReason === 'tool_calls') {
-        // First, emit any buffered text before processing the tool call
-        if (ttsBuffer.trim().length > 0) {
+        // Emit any accumulated text before the tool call's "say" message
+        if (partialResponse.trim().length > 0) {
           this.emit('gptreply', {
             partialResponseIndex: this.partialResponseIndex,
-            partialResponse: ttsBuffer.trim()
+            partialResponse: partialResponse.trim()
           }, interactionCount);
           this.partialResponseIndex++;
-          ttsBuffer = '';
+          partialResponse = ''; // Reset for next segment
         }
 
         const functionToCall = availableFunctions[functionName];
@@ -113,6 +111,7 @@ class GptService extends EventEmitter {
         const toolData = tools.find(tool => tool.function.name === functionName);
         const say = toolData.function.say;
 
+        // Emit the "say" message for the tool
         this.emit('gptreply', {
           partialResponseIndex: null, 
           partialResponse: say
@@ -124,30 +123,33 @@ class GptService extends EventEmitter {
         let functionResponse = await functionToCall(validatedArgs);
         this.updateUserContext(toolData.function.name, 'function', functionResponse);
         
+        // Recursive call to completion for GPT's response after function execution
         await this.completion(functionResponse, interactionCount, 'function', toolData.function.name);
         return; 
       } else {
-        // Check emission criteria for buffered text
-        const trimmedBuffer = ttsBuffer.trim();
-        if (trimmedBuffer.length > 0 && (ttsBuffer.length >= 30 || /[.,?!]$/.test(trimmedBuffer) || finishReason === 'stop')) {
-          this.emit('gptreply', {
-            partialResponseIndex: this.partialResponseIndex,
-            partialResponse: trimmedBuffer
-          }, interactionCount);
-          this.partialResponseIndex++;
-          ttsBuffer = ''; // Clear buffer after emitting
+        // Original logic for emitting based on punctuation or end of stream
+        if (content.trim().slice(-1) === '•' || finishReason === 'stop') {
+          if (partialResponse.trim().length > 0) {
+            const gptReply = { 
+              partialResponseIndex: this.partialResponseIndex,
+              partialResponse: partialResponse.trim() // Emit accumulated and trimmed content
+            };
+            this.emit('gptreply', gptReply, interactionCount);
+            this.partialResponseIndex++;
+            partialResponse = ''; // Clear buffer for the next segment
+          }
         }
       }
     }
 
-    // After the loop, flush any remaining text in ttsBuffer
-    if (ttsBuffer.trim().length > 0) {
+    // After the loop, emit any remaining text in partialResponse
+    if (partialResponse.trim().length > 0) {
       this.emit('gptreply', {
         partialResponseIndex: this.partialResponseIndex,
-        partialResponse: ttsBuffer.trim()
+        partialResponse: partialResponse.trim()
       }, interactionCount);
       this.partialResponseIndex++;
-      ttsBuffer = ''; // Clear buffer
+      // partialResponse = ''; // Not strictly necessary here
     }
 
     // Add the complete assistant response to context if it's not empty

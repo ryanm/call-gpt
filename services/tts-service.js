@@ -1,129 +1,61 @@
 require('dotenv').config();
 const { Buffer } = require('node:buffer');
 const EventEmitter = require('events');
-const { createClient, LiveTTSEvents } = require('@deepgram/sdk');
+const fetch = require('node-fetch');
 
-const VOICE_MODEL = 'aura-2-odysseus-en'; // Example model
-const SAMPLE_RATE = 8000; // Ensure this is a number
+const VOICE_MODEL = 'aura-2-odysseus-en';
+const SAMPLE_RATE = 8000; 
 const ENCODING = 'mulaw';
 
 class TextToSpeechService extends EventEmitter {
   constructor() {
     super();
-    this.deepgramClient = createClient(process.env.DEEPGRAM_API_KEY);
-    this.dgConnection = null;
-    this.currentInteractionCount = 0;
-    this.currentPartialResponseIndex = 0;
-    // this.nextExpectedIndex = 0; // Review if needed
-    // this.speechBuffer = {}; // Review if needed
-
-    this._connect();
+    // Properties like nextExpectedIndex and speechBuffer from the original non-streaming version
+    // are not included in this revert plan, but can be added if needed for functionality
+    // that was present before the streaming refactor.
+    // For now, keeping it minimal as per the revert plan.
   }
 
-  _connect() {
-    this.dgConnection = this.deepgramClient.speak.live({
-      model: VOICE_MODEL,
-      encoding: ENCODING,
-      sample_rate: SAMPLE_RATE,
-      container: 'none', // We want raw audio chunks
-    });
-
-    this.dgConnection.on(LiveTTSEvents.Open, () => {
-      console.log('Deepgram TTS WebSocket connection opened.');
-      this.emit('tts-ready');
-    });
-
-this.dgConnection.on(LiveTTSEvents.Audio, (originalAudioChunk) => {
-  if (!originalAudioChunk || originalAudioChunk.length === 0) {
-    console.log(`[TTS_FILTER] Received empty/null chunk. Skipping.`);
-    return; 
-  }
-
-  // Check the very first byte
-  if (originalAudioChunk[0] === 0xFF) {
-    // First byte is 0xFF. Now, check if ALL bytes are 0xFF.
-    let firstNonFF = -1;
-    for (let i = 1; i < originalAudioChunk.length; i++) { // Start from 1, we know byte 0 is 0xFF
-      if (originalAudioChunk[i] !== 0xFF) {
-        firstNonFF = i;
-        break;
-      }
-    }
-
-    if (firstNonFF === -1) { 
-      // All bytes were 0xFF
-      console.log(`[TTS_FILTER] Chunk (Length: ${originalAudioChunk.length}) is ALL 0xFF. Discarding.`);
-      return; // Do not emit this chunk
-    } else { 
-      // Starts with 0xFF, but has other data later. Slice off all leading 0xFFs.
-      const newChunk = originalAudioChunk.slice(firstNonFF);
-      console.log(`[TTS_FILTER] Trimmed ${firstNonFF} leading 0xFFs. Original Length: ${originalAudioChunk.length}, New Length: ${newChunk.length}.`);
-      if (newChunk.length > 0) {
-        console.log(`[TTS_FILTER] Emitting (after trimming): Length=${newChunk.length}, First 10 hex='${newChunk.slice(0, 10).toString('hex')}'`);
-        this.emit('speechChunk', newChunk, this.currentPartialResponseIndex, this.currentInteractionCount);
-      } else {
-        console.log(`[TTS_FILTER] Chunk became empty after trimming. Original Length: ${originalAudioChunk.length}. Skipping.`);
-      }
-      return; 
-    }
-  } else { 
-    // First byte is NOT 0xFF. Emit as is.
-    console.log(`[TTS_FILTER] Emitting (no leading 0xFF): Length=${originalAudioChunk.length}, First 10 hex='${originalAudioChunk.slice(0, 10).toString('hex')}'`);
-    this.emit('speechChunk', originalAudioChunk, this.currentPartialResponseIndex, this.currentInteractionCount);
-  }
-});
-
-    this.dgConnection.on(LiveTTSEvents.Metadata, (metadata) => {
-      console.log('Deepgram TTS WebSocket metadata:', metadata);
-    });
-    
-    this.dgConnection.on(LiveTTSEvents.Flushed, () => {
-      console.log('Deepgram TTS WebSocket flushed.');
-    });
-
-    this.dgConnection.on(LiveTTSEvents.Error, (error) => {
-      console.error('Deepgram TTS WebSocket error:', error);
-    });
-
-    this.dgConnection.on(LiveTTSEvents.Close, () => {
-      console.log('Deepgram TTS WebSocket connection closed.');
-      // Optionally, attempt to reconnect or handle cleanup
-    });
-  }
-
-  isReady() {
-    return this.dgConnection && this.dgConnection.getReadyState() === 1; // 1 means WebSocket OPEN
-  }
-
-  generate(gptReply, interactionCount) {
+  async generate(gptReply, interactionCount) {
     const { partialResponseIndex, partialResponse } = gptReply;
 
-    if (!partialResponse) {
-      return;
+    if (!partialResponse) { 
+      console.log('TTS Service: Received empty partialResponse. Skipping generation.');
+      return; 
     }
 
-    this.currentInteractionCount = interactionCount;
-    this.currentPartialResponseIndex = partialResponseIndex;
+    // Construct the Deepgram API URL
+    // Using container=none to get raw audio, assuming this is desired for mulaw/8000Hz.
+    const url = `https://api.deepgram.com/v1/speak?model=${VOICE_MODEL}&encoding=${ENCODING}&sample_rate=${SAMPLE_RATE}&container=none`;
 
-    if (this.dgConnection && this.dgConnection.getReadyState() === 1) { // 1 means OPEN
-      console.log(`Sending text to Deepgram: "${partialResponse}"`);
-      this.dgConnection.sendText(partialResponse);
-      this.dgConnection.flush();
-    } else {
-      console.error('Deepgram TTS WebSocket connection not open. State:', this.dgConnection ? this.dgConnection.getReadyState() : 'null');
-      // Handle error or queue the request, or try to reconnect
-      // For now, just logging. Consider reconnecting:
-      // this._connect(); 
-      // And then maybe queue/retry:
-      // setTimeout(() => this.generate(gptReply, interactionCount), 1000); 
-    }
-  }
+    console.log(`TTS Service: Generating audio for (Interaction: ${interactionCount}, Index: ${partialResponseIndex}): "${partialResponse}"`);
 
-  closeConnection() {
-    if (this.dgConnection) {
-      console.log('Closing Deepgram TTS WebSocket connection.');
-      this.dgConnection.finish(); // Sends a Close message and closes the WebSocket
-      this.dgConnection = null;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${process.env.DEEPGRAM_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: partialResponse,
+        }),
+      });
+
+      if (response.status === 200) {
+        const blob = await response.blob(); 
+        const audioArrayBuffer = await blob.arrayBuffer();
+        const base64String = Buffer.from(audioArrayBuffer).toString('base64');
+        
+        console.log(`TTS Service: Successfully generated audio. Emitting 'speech' event. Length: ${base64String.length}`);
+        // Emit 'speech' event with base64 audio, and include original text for context if needed by listeners
+        this.emit('speech', partialResponseIndex, base64String, partialResponse, interactionCount);
+      } else {
+        const errorBody = await response.text();
+        console.error(`Deepgram TTS API Error (Interaction: ${interactionCount}, Index: ${partialResponseIndex}): ${response.status} - ${errorBody}`);
+      }
+    } catch (err) {
+      console.error(`Error in TextToSpeechService during Deepgram API call (Interaction: ${interactionCount}, Index: ${partialResponseIndex}):`, err);
     }
   }
 }
