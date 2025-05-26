@@ -36,6 +36,7 @@ class TextToSpeechService extends EventEmitter {
       // audioChunk is a Buffer
       if (audioChunk.length > 0) {
         console.log(`Received audio chunk, length: ${audioChunk.length}`);
+        console.log(`Deepgram TTS Audio Chunk: Length=${audioChunk.length}, First 10 bytes (hex)='${audioChunk.slice(0, 10).toString('hex')}'`);
         this.emit('speechChunk', audioChunk, this.currentPartialResponseIndex, this.currentInteractionCount);
       }
     });
