@@ -60,7 +60,8 @@ class GptService extends EventEmitter {
     });
 
     let completeResponse = '';
-    // partialResponse is no longer needed here as we emit chunks directly
+    let ttsBuffer = '';
+    let lastChunkTime = Date.now(); // Though not used in current emission logic, good for potential future timeouts
     let functionName = '';
     let functionArgs = '';
     let finishReason = '';
@@ -81,63 +82,75 @@ class GptService extends EventEmitter {
       let content = chunk.choices[0]?.delta?.content || '';
       let deltas = chunk.choices[0].delta;
       finishReason = chunk.choices[0].finish_reason;
+      lastChunkTime = Date.now();
+
+      if (content) {
+        ttsBuffer += content;
+        completeResponse += content; // Accumulate for full context
+      }
 
       // Step 2: check if GPT wanted to call a function
       if (deltas.tool_calls) {
         // Step 3: Collect the tokens containing function data
         collectToolInformation(deltas);
       }
-
-      // Accumulate content for completeResponse for context
-      if (content) {
-        completeResponse += content;
-      }
-
+      
       // need to call function on behalf of Chat GPT with the arguments it parsed from the conversation
       if (finishReason === 'tool_calls') {
-        // parse JSON string of args into JSON object
+        // First, emit any buffered text before processing the tool call
+        if (ttsBuffer.trim().length > 0) {
+          this.emit('gptreply', {
+            partialResponseIndex: this.partialResponseIndex,
+            partialResponse: ttsBuffer.trim()
+          }, interactionCount);
+          this.partialResponseIndex++;
+          ttsBuffer = '';
+        }
 
         const functionToCall = availableFunctions[functionName];
         const validatedArgs = this.validateFunctionArgs(functionArgs);
         
-        // Say a pre-configured message from the function manifest
-        // before running the function.
         const toolData = tools.find(tool => tool.function.name === functionName);
         const say = toolData.function.say;
 
         this.emit('gptreply', {
-          partialResponseIndex: null, // This is a canned response, no specific index from stream
+          partialResponseIndex: null, 
           partialResponse: say
         }, interactionCount);
 
-        // Reset function name and args for next potential call
         functionName = '';
         functionArgs = '';
 
         let functionResponse = await functionToCall(validatedArgs);
-
-        // Step 4: send the info on the function call and function response to GPT
-        // Note: text passed here is the functionResponse, not the user's original text
         this.updateUserContext(toolData.function.name, 'function', functionResponse);
         
-        // call the completion function again but pass in the function response to have OpenAI generate a new assistant response
         await this.completion(functionResponse, interactionCount, 'function', toolData.function.name);
-        // Once the recursive call for function processing is done, we should not process this chunk further as assistant response.
         return; 
       } else {
-        // Emit content chunks immediately for TTS
-        if (content) {
+        // Check emission criteria for buffered text
+        const trimmedBuffer = ttsBuffer.trim();
+        if (trimmedBuffer.length > 0 && (ttsBuffer.length >= 30 || /[.,?!]$/.test(trimmedBuffer) || finishReason === 'stop')) {
           this.emit('gptreply', {
             partialResponseIndex: this.partialResponseIndex,
-            partialResponse: content
+            partialResponse: trimmedBuffer
           }, interactionCount);
           this.partialResponseIndex++;
+          ttsBuffer = ''; // Clear buffer after emitting
         }
       }
     }
 
-    // After the loop, if there was a complete response, add it to context.
-    // This handles cases where the stream ends without a tool_call.
+    // After the loop, flush any remaining text in ttsBuffer
+    if (ttsBuffer.trim().length > 0) {
+      this.emit('gptreply', {
+        partialResponseIndex: this.partialResponseIndex,
+        partialResponse: ttsBuffer.trim()
+      }, interactionCount);
+      this.partialResponseIndex++;
+      ttsBuffer = ''; // Clear buffer
+    }
+
+    // Add the complete assistant response to context if it's not empty
     if (completeResponse) {
       this.userContext.push({'role': 'assistant', 'content': completeResponse});
     }
