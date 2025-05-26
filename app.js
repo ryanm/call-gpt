@@ -57,8 +57,25 @@ app.ws('/connection', (ws) => {
 
         // Set RECORDING_ENABLED='true' in .env to record calls
         recordingService(ttsService, callSid).then(() => {
-          console.log(`Twilio -> Starting Media Stream for ${streamSid}`.underline.red);
-          ttsService.generate({partialResponseIndex: null, partialResponse: "Hey, what's up?"}, 0);
+          console.log(`Twilio -> Starting Media Stream for ${streamSid}`.underline.red); // Kept for original meaning
+          
+          const sendInitialGreeting = () => {
+            console.log('Deepgram TTS is ready. Sending initial greeting "Hey, what's up?".');
+            ttsService.generate({partialResponseIndex: null, partialResponse: "Hey, what's up?"}, 0);
+          };
+
+          if (ttsService.isReady()) {
+            sendInitialGreeting();
+          } else {
+            console.log('Deepgram TTS not immediately ready for initial greeting, waiting for tts-ready event.');
+            ttsService.once('tts-ready', sendInitialGreeting);
+            // Optional: Add a timeout here in case 'tts-ready' never fires
+            setTimeout(() => {
+                if (!ttsService.isReady()) {
+                    console.error('Timeout waiting for tts-ready for initial greeting.');
+                }
+            }, 5000); // 5 second timeout
+          }
         });
       } else if (msg.event === 'media') {
         transcriptionService.send(msg.media.payload);
